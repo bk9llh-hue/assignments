@@ -1,81 +1,65 @@
 import express from "express";
 import fetch from "node-fetch";
 import { JSDOM } from "jsdom";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Serve static files
-app.use(express.static('.'));
+// --- Serve static files (browser.html, home.html, etc) ---
+app.use(express.static(__dirname));
 
-// --- Universal catch-all route ---
-// Express 5 requires a named parameter for catch-all
+// --- Proxy handler ---
+// Match any URL after / (including slashes)
 app.get("/:encodedUrl(*)", async (req, res) => {
-    const encodedPath = req.params.encodedUrl; // everything after '/'
-    
-    // Blank homepage if no path
-    if(!encodedPath) return res.send('<!DOCTYPE html><html><head><title>Home</title></head><body></body></html>');
+    const encodedUrl = req.params.encodedUrl;
+    if (!encodedUrl) return res.status(400).send("Missing URL");
 
-    let target = decodeURIComponent(encodedPath);
-    if(!target.startsWith('http')) target = 'https://' + target;
+    // Decode classroom:// style
+    let target = decodeURIComponent(encodedUrl);
+    if (target.startsWith("classroom://")) target = target.replace("classroom://", "https://");
+    else if (!target.startsWith("http")) target = "https://" + target;
 
     try {
         const upstream = await fetch(target, {
-            headers: {
-                "User-Agent": req.headers["user-agent"] || "Mozilla/5.0",
-                "Accept": "*/*",
-                "Accept-Encoding": "identity"
-            }
+            headers: { "User-Agent": req.headers["user-agent"] || "Mozilla/5.0" }
         });
-
-        const contentType = upstream.headers.get('content-type') || '';
-
-        // If binary (image, pdf, etc.), pipe directly
-        if(!contentType.includes('text/html')){
-            const buffer = await upstream.arrayBuffer();
-            res.setHeader('Content-Type', contentType);
-            return res.send(Buffer.from(buffer));
-        }
 
         const text = await upstream.text();
 
-        // Parse HTML
+        // Rewrite relative links to go through proxy
         const dom = new JSDOM(text);
         const document = dom.window.document;
 
-        // --- Remove CSP and frame restrictions ---
-        document.querySelectorAll('meta[http-equiv="Content-Security-Policy"]').forEach(e => e.remove());
-        document.querySelectorAll('meta[http-equiv="X-Frame-Options"]').forEach(e => e.remove());
-        // Remove frame options headers if possible
-        res.removeHeader('X-Frame-Options');
-        res.removeHeader('Content-Security-Policy');
-
-        // Rewrite relative URLs
         [...document.querySelectorAll("a, link, script, img, form")].forEach(el => {
-            const attr = el.hasAttribute("href") ? "href" :
-                         el.hasAttribute("src") ? "src" : null;
-            if(!attr) return;
+            let attr = null;
+            if (el.hasAttribute("href")) attr = "href";
+            else if (el.hasAttribute("src")) attr = "src";
+            else return;
 
             const val = el.getAttribute(attr);
-            if(!val) return;
-            if(val.startsWith("http") || val.startsWith("data:")) return;
+            if (!val || val.startsWith("http") || val.startsWith("mailto:")) return;
 
             const absolute = new URL(val, target).href;
-            el.setAttribute(attr, '/' + encodeURIComponent(absolute));
+            el.setAttribute(attr, "/" + encodeURIComponent(absolute));
         });
 
-        // Inject base tag to help relative links
-        const baseTag = document.createElement('base');
-        baseTag.href = '/';
-        document.head.prepend(baseTag);
-
-        res.setHeader('X-Content-Type-Options','nosniff');
         res.send(dom.serialize());
-
-    } catch(err){
+    } catch (err) {
         console.error(err);
-        res.status(500).send("Proxy error: " + err.message);
+        res.status(500).send("Upstream error: " + err.message);
     }
 });
 
-app.listen(PORT, () => console.log(`Smart proxy running at http://localhost:${PORT}`));
+// --- Home page blank for root ---
+app.get("/", (req, res) => {
+    res.sendFile(path.join(__dirname, "home.html"));
+});
+
+app.listen(PORT, () => {
+    console.log(`Proxy running at http://localhost:${PORT}`);
+});
