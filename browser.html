@@ -3,69 +3,95 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Home</title>
+<title>Smart Fullpage Browser</title>
 
-<!-- Favicon -->
-<link rel="icon" type="image/png" href="https://ssl.gstatic.com/classroom/favicon.png">
-
-<!-- PWA meta -->
-<meta name="application-name" content="Google Classroom">
-<meta name="theme-color" content="#424242">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="Google Classroom">
+<!-- Favicon placeholder -->
+<link id="favicon" rel="icon" type="image/png" href="https://www.google.com/favicon.ico">
 
 <style>
-html, body {
-    width: 100%;
-    height: 100%;
-    margin: 0;
-    padding: 0;
-    overflow: hidden;
-    background: #000;
+html, body { margin:0; padding:0; height:100%; overflow:hidden; background:#000; }
+#iframe-container { width:100%; height:100%; position:relative; }
+#iframe-container iframe { width:100%; height:100%; border:none; transition: opacity 0.4s ease; opacity:0; }
+#bookmark-bar {
+  position:absolute; top:0; left:0; width:100%; display:flex; padding:4px 8px; gap:6px; background:rgba(0,0,0,0.6); z-index:10; overflow-x:auto; 
 }
-
-#iframe-container {
-    width: 100%;
-    height: 100%;
+.bookmark {
+  display:flex; align-items:center; gap:4px; background:#2c2c2c; padding:2px 6px; border-radius:4px; cursor:pointer;
 }
-
-#iframe-container iframe {
-    width: 100%;
-    height: 100%;
-    border: none;
-    transition: opacity 0.3s ease, transform 0.3s ease;
-    opacity: 0;
-    transform: scale(0.98);
-}
+.bookmark img { width:16px; height:16px; }
+.bookmark:hover { background:#1a73e8; }
 </style>
 </head>
 <body>
 
+<div id="bookmark-bar"></div>
 <div id="iframe-container">
-    <iframe id="viewer"></iframe>
+  <iframe id="viewer"></iframe>
 </div>
 
 <script>
-// Grab the path from URL
-let path = window.location.pathname.slice(1); // "google.com"
 const viewer = document.getElementById('viewer');
+const faviconEl = document.getElementById('favicon');
+const bookmarkBar = document.getElementById('bookmark-bar');
 
-// Blank homepage if no path
-if(!path){
-    viewer.srcdoc = ""; // empty page
-} else {
-    // Add https automatically if missing
-    if(!path.startsWith('http')) path = 'https://' + path;
+// Get target URL from path
+let targetPath = location.pathname.slice(1);
+if(!targetPath) targetPath = 'about:blank';
+let targetURL = targetPath.startsWith('http') ? targetPath : 'https://' + targetPath;
 
-    const encoded = encodeURIComponent(path);
-    viewer.src = '/assignment/' + encoded;
-
-    viewer.onload = () => {
-        viewer.style.opacity = 1;
-        viewer.style.transform = 'scale(1)';
-    };
+// Load iframe
+function loadIframe(url){
+    viewer.style.opacity=0;
+    setTimeout(()=>{
+        viewer.src='/' + encodeURIComponent(url);
+        viewer.onload=()=>{
+            viewer.style.opacity=1;
+        };
+    },100);
 }
-</script>
+loadIframe(targetURL);
 
+// Auto fetch favicon and title
+function updateFaviconTitle(url){
+    try{
+        const u = new URL(url);
+        faviconEl.href = `https://www.google.com/s2/favicons?domain=${u.hostname}`;
+        document.title = u.hostname;
+    }catch(e){
+        document.title = url;
+    }
+}
+updateFaviconTitle(targetURL);
+
+// --- Bookmarks ---
+let bookmarks = JSON.parse(localStorage.getItem('bookmarks') || '[]');
+
+function renderBookmarks(){
+    bookmarkBar.innerHTML='';
+    bookmarks.forEach((b,i)=>{
+        const div=document.createElement('div');
+        div.className='bookmark';
+        div.innerHTML=`<img src="https://www.google.com/s2/favicons?domain=${new URL(b).hostname}"/>${b}`;
+        div.onclick=()=>{ loadIframe(b); updateFaviconTitle(b); }
+        div.oncontextmenu=(e)=>{
+            e.preventDefault();
+            if(confirm('Delete this bookmark?')) { bookmarks.splice(i,1); localStorage.setItem('bookmarks',JSON.stringify(bookmarks)); renderBookmarks(); }
+        };
+        bookmarkBar.appendChild(div);
+    });
+}
+renderBookmarks();
+
+// Example: Ctrl+D to bookmark current
+document.addEventListener('keydown', e=>{
+    if(e.ctrlKey && e.key==='d'){
+        e.preventDefault();
+        if(!bookmarks.includes(targetURL)) { bookmarks.push(targetURL); localStorage.setItem('bookmarks',JSON.stringify(bookmarks)); renderBookmarks(); }
+        alert('Bookmarked ' + targetURL);
+    }
+});
+
+// Listen to iframe url change (via message from inside iframe if needed)
+</script>
 </body>
 </html>
