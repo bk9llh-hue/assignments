@@ -7,11 +7,13 @@
     "": {
       "name": "scramjet-proxy",
       "version": "1.0.0",
+      "license": "ISC",
       "dependencies": {
         "express": "^5.1.0",
         "jsdom": "^21.1.2",
         "node-fetch": "^3.3.2"
-      }
+      },
+      "devDependencies": {}
     },
     "node_modules/@tootallnate/once": {
       "version": "2.0.0",
