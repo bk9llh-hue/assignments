@@ -2,6 +2,7 @@
 import express from "express";
 import fetch from "node-fetch";
 import { URL } from "url";
+import path from "path";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -9,20 +10,22 @@ const PORT = process.env.PORT || 3000;
 // Serve static files (home.html, browser.html, etc.)
 app.use(express.static("."));
 
-// --- Proxy Handler ---
-app.get("/:encodedUrl(*)", async (req, res) => {
+// --- Smart Proxy Handler ---
+app.get("/:encodedUrl(*)?", async (req, res) => {
   try {
-    const encodedUrl = req.params.encodedUrl;
-    if (!encodedUrl) return res.sendFile("home.html", { root: "." });
+    // If no URL provided, serve blank home page
+    if (!req.params.encodedUrl) {
+      return res.sendFile(path.resolve("home.html"));
+    }
 
-    // Decode URL
-    let target = decodeURIComponent(encodedUrl);
+    // Decode the full path, including query params
+    const decodedPath = decodeURIComponent(req.params.encodedUrl);
 
-    // Auto prepend https:// if missing
-    if (!target.startsWith("http")) target = "https://" + target;
+    // Add https:// if missing
+    let targetUrl = decodedPath.match(/^https?:\/\//) ? decodedPath : `https://${decodedPath}`;
 
     // Fetch the target website
-    const upstream = await fetch(target, {
+    const upstream = await fetch(targetUrl, {
       headers: {
         "User-Agent": req.headers["user-agent"] || "Mozilla/5.0",
         "Accept": "*/*",
@@ -31,16 +34,16 @@ app.get("/:encodedUrl(*)", async (req, res) => {
 
     const contentType = upstream.headers.get("content-type") || "";
 
-    // If it's HTML, we can optionally rewrite relative URLs minimally
+    // Handle HTML content with relative URL rewriting
     if (contentType.includes("text/html")) {
-      let text = await upstream.text();
+      let html = await upstream.text();
 
-      // Minimal rewriting of relative URLs to go through our proxy
-      text = text.replace(
-        /(href|src)=["'](?!https?:|\/\/)([^"']+)["']/g,
+      // Rewrite relative href/src URLs to proxy paths
+      html = html.replace(
+        /(href|src)=["'](?!https?:|\/\/)([^"']+)["']/gi,
         (match, attr, url) => {
           try {
-            const absolute = new URL(url, target).href;
+            const absolute = new URL(url, targetUrl).href;
             return `${attr}="/${encodeURIComponent(absolute)}"`;
           } catch {
             return match;
@@ -48,20 +51,19 @@ app.get("/:encodedUrl(*)", async (req, res) => {
         }
       );
 
-      // Send HTML as-is
       res.set("Content-Type", "text/html");
-      return res.send(text);
+      return res.send(html);
     }
 
-    // For other content types (JS, CSS, images, JSON, etc.)
+    // Non-HTML content (images, JS, CSS, etc.)
     const buffer = await upstream.arrayBuffer();
     res.set("Content-Type", contentType);
     return res.send(Buffer.from(buffer));
+
   } catch (err) {
     console.error("Proxy Error:", err);
-    return res.status(500).send("Proxy Error: " + err.message);
+    return res.status(500).send("Upstream error: " + err.message);
   }
 });
 
-// Start server
-app.listen(PORT, () => console.log(`Smart proxy running on http://localhost:${PORT}`));
+app.listen(PORT, () => console.log(`Smart proxy running at http://localhost:${PORT}`));
