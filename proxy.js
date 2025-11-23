@@ -10,13 +10,18 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// --- Serve static files (browser.html, home.html, etc) ---
+// --- Serve static files (home.html, browser.html, etc) ---
 app.use(express.static(__dirname));
 
-// --- Proxy handler ---
-// Match any URL after / (including slashes)
-app.get("/:encodedUrl(*)", async (req, res) => {
-    const encodedUrl = req.params.encodedUrl;
+// --- Home page (blank) ---
+app.get("/", (req, res) => {
+    res.sendFile(path.join(__dirname, "home.html"));
+});
+
+// --- Proxy handler for any URL ---
+// Use RegExp route to match any path after /
+app.get(/^\/(.+)$/, async (req, res) => {
+    let encodedUrl = req.params[0]; // <-- Express 5 compatible
     if (!encodedUrl) return res.status(400).send("Missing URL");
 
     // Decode classroom:// style
@@ -31,15 +36,14 @@ app.get("/:encodedUrl(*)", async (req, res) => {
 
         const text = await upstream.text();
 
-        // Rewrite relative links to go through proxy
+        // Rewrite relative links to proxy
         const dom = new JSDOM(text);
         const document = dom.window.document;
 
         [...document.querySelectorAll("a, link, script, img, form")].forEach(el => {
-            let attr = null;
-            if (el.hasAttribute("href")) attr = "href";
-            else if (el.hasAttribute("src")) attr = "src";
-            else return;
+            let attr = el.hasAttribute("href") ? "href" :
+                       el.hasAttribute("src") ? "src" : null;
+            if (!attr) return;
 
             const val = el.getAttribute(attr);
             if (!val || val.startsWith("http") || val.startsWith("mailto:")) return;
@@ -53,11 +57,6 @@ app.get("/:encodedUrl(*)", async (req, res) => {
         console.error(err);
         res.status(500).send("Upstream error: " + err.message);
     }
-});
-
-// --- Home page blank for root ---
-app.get("/", (req, res) => {
-    res.sendFile(path.join(__dirname, "home.html"));
 });
 
 app.listen(PORT, () => {
