@@ -5,26 +5,31 @@ import { JSDOM } from "jsdom";
 const app = express();
 const PORT = 3000;
 
-// Static files
+// Serve static files (browser.html, sw.js, etc.)
 app.use(express.static('.'));
 
-// --- smarter proxy handler ---
-app.get("/assignment/:encodedUrl", async (req, res) => {
-    const target = decodeURIComponent(req.params.encodedUrl);
-    if(!target) return res.status(400).send("Missing URL");
+// --- Universal path proxy ---
+app.get("/*", async (req, res) => {
+    const path = req.path.slice(1); // remove leading "/"
+    
+    // If no path, show blank homepage
+    if(!path) return res.send('<!DOCTYPE html><html><head><title>Home</title></head><body></body></html>');
+
+    let target = path;
+    if(!target.startsWith('http')) target = 'https://' + target;
 
     try {
         const upstream = await fetch(target, {
             headers: { "User-Agent": req.headers["user-agent"] }
         });
 
-        let text = await upstream.text();
+        const text = await upstream.text();
 
-        // Fix X-Frame-Options and CSP to allow embedding
+        // Rewrite relative URLs and strip CSP/X-Frame restrictions
         const dom = new JSDOM(text);
         const document = dom.window.document;
 
-        // Remove CSP & X-Frame headers
+        // Remove CSP
         const metaCSP = document.querySelector('meta[http-equiv="Content-Security-Policy"]');
         if(metaCSP) metaCSP.remove();
 
@@ -39,15 +44,15 @@ app.get("/assignment/:encodedUrl", async (req, res) => {
             if(val.startsWith("http")) return;
 
             const absolute = new URL(val, target).href;
-            el.setAttribute(attr, `/assignment/${encodeURIComponent(absolute)}`);
+            el.setAttribute(attr, '/' + encodeURIComponent(absolute));
         });
 
         res.setHeader('X-Content-Type-Options','nosniff');
         res.send(dom.serialize());
+
     } catch(err){
         res.status(500).send("Proxy error: " + err.message);
     }
 });
 
-// Listen
 app.listen(PORT, () => console.log(`Smart proxy running at http://localhost:${PORT}`));
