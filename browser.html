@@ -3,95 +3,78 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Smart Fullpage Browser</title>
+<title>Smart Assignment Browser</title>
 
-<!-- Favicon placeholder -->
-<link id="favicon" rel="icon" type="image/png" href="https://www.google.com/favicon.ico">
+<!-- Favicon -->
+<link rel="icon" href="https://ssl.gstatic.com/classroom/favicon.png">
 
 <style>
-html, body { margin:0; padding:0; height:100%; overflow:hidden; background:#000; }
-#iframe-container { width:100%; height:100%; position:relative; }
-#iframe-container iframe { width:100%; height:100%; border:none; transition: opacity 0.4s ease; opacity:0; }
-#bookmark-bar {
-  position:absolute; top:0; left:0; width:100%; display:flex; padding:4px 8px; gap:6px; background:rgba(0,0,0,0.6); z-index:10; overflow-x:auto; 
-}
-.bookmark {
-  display:flex; align-items:center; gap:4px; background:#2c2c2c; padding:2px 6px; border-radius:4px; cursor:pointer;
-}
-.bookmark img { width:16px; height:16px; }
-.bookmark:hover { background:#1a73e8; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #000;
+  }
+
+  /* Invisible URL input to store the current URL (required for JS) */
+  #urlInput {
+    position: absolute;
+    top: -100px;
+    left: -100px;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+  }
+
+  iframe {
+    width: 100%;
+    height: 100%;
+    border: none;
+  }
 </style>
 </head>
 <body>
 
-<div id="bookmark-bar"></div>
-<div id="iframe-container">
-  <iframe id="viewer"></iframe>
-</div>
+<input id="urlInput" type="text" />
+
+<iframe id="viewer" allowfullscreen sandbox="allow-scripts allow-forms allow-same-origin allow-popups"></iframe>
 
 <script>
-const viewer = document.getElementById('viewer');
-const faviconEl = document.getElementById('favicon');
-const bookmarkBar = document.getElementById('bookmark-bar');
+  const viewer = document.getElementById('viewer');
+  const urlInput = document.getElementById('urlInput');
 
-// Get target URL from path
-let targetPath = location.pathname.slice(1);
-if(!targetPath) targetPath = 'about:blank';
-let targetURL = targetPath.startsWith('http') ? targetPath : 'https://' + targetPath;
+  // Parse the current path to load the proxied site
+  function getTargetUrl() {
+    let path = window.location.pathname.slice(1); // remove leading /
+    if (!path) return null;
+    path = decodeURIComponent(path);
 
-// Load iframe
-function loadIframe(url){
-    viewer.style.opacity=0;
-    setTimeout(()=>{
-        viewer.src='/' + encodeURIComponent(url);
-        viewer.onload=()=>{
-            viewer.style.opacity=1;
-        };
-    },100);
-}
-loadIframe(targetURL);
+    if (path.startsWith("classroom://")) path = path.replace("classroom://", "https://");
+    else if (!path.startsWith("http")) path = "https://" + path;
 
-// Auto fetch favicon and title
-function updateFaviconTitle(url){
-    try{
-        const u = new URL(url);
-        faviconEl.href = `https://www.google.com/s2/favicons?domain=${u.hostname}`;
-        document.title = u.hostname;
-    }catch(e){
-        document.title = url;
-    }
-}
-updateFaviconTitle(targetURL);
+    return path;
+  }
 
-// --- Bookmarks ---
-let bookmarks = JSON.parse(localStorage.getItem('bookmarks') || '[]');
+  function loadSite(url) {
+    if (!url) return;
 
-function renderBookmarks(){
-    bookmarkBar.innerHTML='';
-    bookmarks.forEach((b,i)=>{
-        const div=document.createElement('div');
-        div.className='bookmark';
-        div.innerHTML=`<img src="https://www.google.com/s2/favicons?domain=${new URL(b).hostname}"/>${b}`;
-        div.onclick=()=>{ loadIframe(b); updateFaviconTitle(b); }
-        div.oncontextmenu=(e)=>{
-            e.preventDefault();
-            if(confirm('Delete this bookmark?')) { bookmarks.splice(i,1); localStorage.setItem('bookmarks',JSON.stringify(bookmarks)); renderBookmarks(); }
-        };
-        bookmarkBar.appendChild(div);
-    });
-}
-renderBookmarks();
+    // Store in invisible input for potential future JS
+    urlInput.value = url;
 
-// Example: Ctrl+D to bookmark current
-document.addEventListener('keydown', e=>{
-    if(e.ctrlKey && e.key==='d'){
-        e.preventDefault();
-        if(!bookmarks.includes(targetURL)) { bookmarks.push(targetURL); localStorage.setItem('bookmarks',JSON.stringify(bookmarks)); renderBookmarks(); }
-        alert('Bookmarked ' + targetURL);
-    }
-});
+    // Encode URL for proxy
+    const proxyUrl = '/' + encodeURIComponent(url);
+    viewer.src = proxyUrl;
+  }
 
-// Listen to iframe url change (via message from inside iframe if needed)
+  // Initial load
+  const targetUrl = getTargetUrl();
+  if (targetUrl) loadSite(targetUrl);
+  else {
+    // Blank page if no URL
+    viewer.srcdoc = "<html><body style='margin:0;background:#111;'></body></html>";
+  }
 </script>
 </body>
 </html>
