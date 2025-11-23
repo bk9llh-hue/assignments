@@ -1,8 +1,8 @@
 // proxy.js
 import express from "express";
 import fetch from "node-fetch";
-import { URL } from "url";
 import path from "path";
+import { URL } from "url";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -11,20 +11,29 @@ const PORT = process.env.PORT || 3000;
 app.use(express.static("."));
 
 // --- Smart Proxy Handler ---
-app.get("/:encodedUrl(*)?", async (req, res) => {
+app.get("/:encodedUrl(*)", async (req, res) => {
   try {
-    // If no URL provided, serve blank home page
-    if (!req.params.encodedUrl) {
+    const encodedUrl = req.params.encodedUrl;
+    if (!encodedUrl) {
+      // Blank home page
       return res.sendFile(path.resolve("home.html"));
     }
 
-    // Decode the full path, including query params
-    const decodedPath = decodeURIComponent(req.params.encodedUrl);
+    // Decode the URL properly
+    let targetUrl = decodeURIComponent(encodedUrl);
 
-    // Add https:// if missing
-    let targetUrl = decodedPath.match(/^https?:\/\//) ? decodedPath : `https://${decodedPath}`;
+    // Prepend https:// if missing
+    if (!targetUrl.match(/^https?:\/\//)) targetUrl = "https://" + targetUrl;
 
-    // Fetch the target website
+    // Append query string if present
+    if (req.originalUrl.includes("?")) {
+      const qs = req.originalUrl.split("?").slice(1).join("?");
+      targetUrl += "?" + qs;
+    }
+
+    console.log("Fetching:", targetUrl);
+
+    // Fetch upstream content
     const upstream = await fetch(targetUrl, {
       headers: {
         "User-Agent": req.headers["user-agent"] || "Mozilla/5.0",
@@ -34,11 +43,11 @@ app.get("/:encodedUrl(*)?", async (req, res) => {
 
     const contentType = upstream.headers.get("content-type") || "";
 
-    // Handle HTML content with relative URL rewriting
+    // HTML content: rewrite relative URLs
     if (contentType.includes("text/html")) {
       let html = await upstream.text();
 
-      // Rewrite relative href/src URLs to proxy paths
+      // Fix relative href/src URLs
       html = html.replace(
         /(href|src)=["'](?!https?:|\/\/)([^"']+)["']/gi,
         (match, attr, url) => {
@@ -55,7 +64,7 @@ app.get("/:encodedUrl(*)?", async (req, res) => {
       return res.send(html);
     }
 
-    // Non-HTML content (images, JS, CSS, etc.)
+    // Non-HTML content: return as-is
     const buffer = await upstream.arrayBuffer();
     res.set("Content-Type", contentType);
     return res.send(Buffer.from(buffer));
