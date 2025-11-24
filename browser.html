@@ -1,80 +1,70 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Smart Assignment Browser</title>
-
-<!-- Favicon -->
-<link rel="icon" href="https://ssl.gstatic.com/classroom/favicon.png">
-
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Fullpage Proxy Viewer</title>
+<link rel="icon" id="fav" href="https://ssl.gstatic.com/classroom/favicon.png">
 <style>
-  html, body {
-    margin: 0;
-    padding: 0;
-    width: 100%;
-    height: 100%;
-    overflow: hidden;
-    background: #000;
-  }
-
-  /* Invisible URL input to store the current URL (required for JS) */
-  #urlInput {
-    position: absolute;
-    top: -100px;
-    left: -100px;
-    width: 1px;
-    height: 1px;
-    opacity: 0;
-  }
-
-  iframe {
-    width: 100%;
-    height: 100%;
-    border: none;
-  }
+html,body{height:100%;margin:0;background:#000}
+iframe{width:100%;height:100%;border:0;opacity:0;transform:scale(.995);transition:opacity .25s, transform .25s}
 </style>
 </head>
 <body>
-
-<input id="urlInput" type="text" />
-
-<iframe id="viewer" allowfullscreen sandbox="allow-scripts allow-forms allow-same-origin allow-popups"></iframe>
-
+<iframe id="viewer" allowfullscreen sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-modals allow-top-navigation"></iframe>
+<input id="hiddenUrl" type="text" style="position:absolute;left:-9999px;top:-9999px" aria-hidden="true">
 <script>
-  const viewer = document.getElementById('viewer');
-  const urlInput = document.getElementById('urlInput');
+if ('serviceWorker' in navigator) {
+navigator.serviceWorker.register('/sw.js').catch(()=>{/* ignore */});
+}
 
-  // Parse the current path to load the proxied site
-  function getTargetUrl() {
-    let path = window.location.pathname.slice(1); // remove leading /
-    if (!path) return null;
-    path = decodeURIComponent(path);
 
-    if (path.startsWith("classroom://")) path = path.replace("classroom://", "https://");
-    else if (!path.startsWith("http")) path = "https://" + path;
+const viewer = document.getElementById('viewer');
+const hidden = document.getElementById('hiddenUrl');
 
-    return path;
-  }
 
-  function loadSite(url) {
-    if (!url) return;
+function getTargetFromPath() {
+let p = location.pathname.slice(1);
+if (!p) return null;
+try { p = decodeURIComponent(p); } catch {}
+if (p.startsWith('classroom://')) p = p.replace(/^classroom:\/\//i, 'https://');
+if (!/^[a-zA-Z]+:\/\//.test(p)) p = 'https://' + p;
+return p;
+}
 
-    // Store in invisible input for potential future JS
-    urlInput.value = url;
 
-    // Encode URL for proxy
-    const proxyUrl = '/' + encodeURIComponent(url);
-    viewer.src = proxyUrl;
-  }
+function load(url) {
+if (!url) { viewer.srcdoc = '<!doctype html><html><body style="background:#111;margin:0"></body></html>'; viewer.style.opacity = 1; return; }
+hidden.value = url;
+const prox = '/' + encodeURIComponent(url);
+viewer.style.opacity = 0;
+setTimeout(()=>{ viewer.src = prox; }, 80);
+}
 
-  // Initial load
-  const targetUrl = getTargetUrl();
-  if (targetUrl) loadSite(targetUrl);
-  else {
-    // Blank page if no URL
-    viewer.srcdoc = "<html><body style='margin:0;background:#111;'></body></html>";
-  }
+
+viewer.addEventListener('load', ()=>{
+viewer.style.opacity = 1;
+try {
+const doc = viewer.contentDocument || viewer.contentWindow.document;
+const title = doc.title;
+if (title) document.title = title;
+const icon = doc.querySelector('link[rel*="icon"]');
+if (icon && icon.href) document.getElementById('fav').href = icon.href;
+} catch(e) {
+try { document.title = new URL(hidden.value).hostname; } catch{}
+}
+});
+
+
+window.addEventListener('keydown', (e)=>{
+if ((e.ctrlKey || e.metaKey) && e.key === 'r') {
+e.preventDefault();
+viewer.contentWindow.location.reload(true);
+}
+});
+
+
+load(getTargetFromPath());
 </script>
 </body>
 </html>
