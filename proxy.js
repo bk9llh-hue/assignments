@@ -1,7 +1,7 @@
 import express from "express";
 import fetch from "node-fetch";
-import Scramjet from "scramjet"; 
-const { DataStream } = Scramjet;
+import Scramjet from "scramjet";
+const { DataStream, StringStream } = Scramjet;
 import { JSDOM } from "jsdom";
 import cookieParser from "cookie-parser";
 
@@ -9,7 +9,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 app.use(cookieParser());
 
-// Map /google.com → /assignments/<encoded>
+// Auto-map short domains
 app.get("/:site", (req, res, next) => {
     const host = req.params.site;
     if (host.includes(".")) {
@@ -22,6 +22,7 @@ app.get("/:site", (req, res, next) => {
 app.get("/assignments/:encoded", async (req, res) => {
     try {
         const target = decodeURIComponent(req.params.encoded);
+
         const upstream = await fetch(target, {
             headers: {
                 "User-Agent": req.headers["user-agent"] || "Mozilla/5.0",
@@ -46,31 +47,24 @@ app.get("/assignments/:encoded", async (req, res) => {
         const dom = new JSDOM(html);
         const document = dom.window.document;
 
-        const rewrite = (url) =>
-            `/assignments/${encodeURIComponent(new URL(url, target).href)}`;
+        const rewrite = (url) => `/assignments/${encodeURIComponent(new URL(url, target).href)}`;
 
         document.querySelectorAll("*").forEach(el => {
             if (el.hasAttribute("href")) {
                 const val = el.getAttribute("href");
-                if (val && !val.startsWith("http") && !val.startsWith("data:")) {
-                    el.setAttribute("href", rewrite(val));
-                }
+                if (val && !val.startsWith("http") && !val.startsWith("data:")) el.setAttribute("href", rewrite(val));
             }
             if (el.hasAttribute("src")) {
                 const val = el.getAttribute("src");
-                if (val && !val.startsWith("http") && !val.startsWith("data:")) {
-                    el.setAttribute("src", rewrite(val));
-                }
+                if (val && !val.startsWith("http") && !val.startsWith("data:")) el.setAttribute("src", rewrite(val));
             }
             if (el.tagName === "FORM" && el.hasAttribute("action")) {
                 const val = el.getAttribute("action");
-                if (val && !val.startsWith("http")) {
-                    el.setAttribute("action", rewrite(val));
-                }
+                if (val && !val.startsWith("http")) el.setAttribute("action", rewrite(val));
             }
         });
 
-        // Inject dynamic fetch/XHR rewrite
+        // Dynamic JS rewriting
         const patch = document.createElement("script");
         patch.textContent = `
             (() => {
@@ -92,7 +86,8 @@ app.get("/assignments/:encoded", async (req, res) => {
         `;
         document.head.appendChild(patch);
 
-        DataStream.fromString(dom.serialize()).pipe(res);
+        // ✅ Use StringStream for HTML
+        StringStream.from(dom.serialize()).pipe(res);
 
     } catch (err) {
         console.error("Assignments Proxy Error:", err);
