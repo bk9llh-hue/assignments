@@ -1,28 +1,78 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-<title>Local Proxy Test</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Home</title>
+
+<!-- Favicon -->
+<link rel="icon" type="image/png" href="https://ssl.gstatic.com/classroom/favicon.png">
+
+<!-- PWA meta -->
+<meta name="application-name" content="Google Classroom">
+<meta name="theme-color" content="#424242">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Google Classroom">
 <style>
-body { margin:0; background:#111; color:white; font-family:sans-serif; }
-#bar { padding:10px; background:#222; display:flex; gap:10px; }
-input { flex:1; padding:8px; background:#333; border:none; color:white; }
-button { padding:8px 14px; background:#444; border:none; color:white; }
-iframe { width:100vw; height:90vh; border:none; }
+    body, html { margin:0; padding:0; height:100%; font-family:sans-serif; background:#111; color:white; }
+    #topbar { height:50px; background:#222; display:flex; align-items:center; gap:5px; padding:0 10px; }
+    #urlbar { flex:1; padding:6px 10px; border:none; border-radius:4px; }
+    button { background:#555; border:none; color:white; padding:6px 10px; border-radius:4px; cursor:pointer; }
+    button:hover { background:#666; }
+    iframe { width:100%; height:calc(100% - 50px); border:none; }
 </style>
 </head>
 <body>
-<div id="bar">
-    <input id="url" placeholder="https://classwork-study.onrender.com/">
-    <button onclick="go()">Go</button>
+
+<div id="topbar">
+    <button id="back">←</button>
+    <button id="forward">→</button>
+    <button id="refresh">⟳</button>
+    <input type="text" id="urlbar" placeholder="Enter website e.g. google.com">
 </div>
-<iframe id="frame"></iframe>
+<iframe id="frame" src=""></iframe>
 
 <script>
-function go() {
-    const u = document.getElementById("url").value;
-    document.getElementById("frame").src =
-      "/proxy?url=" + encodeURIComponent(u);
+const frame = document.getElementById("frame");
+const urlbar = document.getElementById("urlbar");
+const backBtn = document.getElementById("back");
+const forwardBtn = document.getElementById("forward");
+const refreshBtn = document.getElementById("refresh");
+
+const historyStack = [];
+let historyIndex = -1;
+
+function load(url) {
+    if (!url.startsWith("http")) url = "https://" + url;
+    const proxied = "/assignments/" + encodeURIComponent(url);
+    frame.src = proxied;
+
+    // Manage history
+    if (historyIndex === -1 || historyStack[historyIndex] !== proxied) {
+        historyStack.splice(historyIndex+1);
+        historyStack.push(proxied);
+        historyIndex++;
+    }
+    urlbar.value = url;
 }
+
+urlbar.addEventListener("keydown", e => {
+    if (e.key === "Enter") load(urlbar.value);
+});
+
+backBtn.addEventListener("click", () => {
+    if (historyIndex>0) { historyIndex--; frame.src = historyStack[historyIndex]; }
+});
+forwardBtn.addEventListener("click", () => {
+    if (historyIndex<historyStack.length-1) { historyIndex++; frame.src = historyStack[historyIndex]; }
+});
+refreshBtn.addEventListener("click", () => {
+    frame.src = historyStack[historyIndex];
+});
+
+// Load default
+load("google.com");
 </script>
+
 </body>
 </html>
