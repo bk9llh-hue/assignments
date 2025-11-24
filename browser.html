@@ -14,65 +14,28 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Google Classroom">
 <style>
-html,body{height:100%;margin:0;background:#000}
-iframe{width:100%;height:100%;border:0;opacity:0;transform:scale(.995);transition:opacity .25s, transform .25s}
+  body, html { margin:0; padding:0; height:100%; }
+  iframe { width:100%; height:100%; border:none; }
+  #topbar { position:fixed; top:0; width:100%; height:50px; background:#333; color:white; display:flex; align-items:center; padding:0 10px; z-index:999; }
+  #url { flex:1; margin-right:10px; padding:5px; font-size:16px; }
 </style>
 </head>
 <body>
-<iframe id="viewer" allowfullscreen sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-modals allow-top-navigation"></iframe>
-<input id="hiddenUrl" type="text" style="position:absolute;left:-9999px;top:-9999px" aria-hidden="true">
+<div id="topbar">
+  <input id="url" placeholder="Enter URL" />
+  <button onclick="loadUrl()">Go</button>
+</div>
+<iframe id="frame"></iframe>
 <script>
-if ('serviceWorker' in navigator) {
-navigator.serviceWorker.register('/sw.js').catch(()=>{/* ignore */});
+const frame = document.getElementById('frame');
+function loadUrl() {
+  const url = document.getElementById('url').value;
+  if (!url) return;
+  frame.src = '/' + encodeURIComponent(url);
 }
-
-
-const viewer = document.getElementById('viewer');
-const hidden = document.getElementById('hiddenUrl');
-
-
-function getTargetFromPath() {
-let p = location.pathname.slice(1);
-if (!p) return null;
-try { p = decodeURIComponent(p); } catch {}
-if (p.startsWith('classroom://')) p = p.replace(/^classroom:\/\//i, 'https://');
-if (!/^[a-zA-Z]+:\/\//.test(p)) p = 'https://' + p;
-return p;
-}
-
-
-function load(url) {
-if (!url) { viewer.srcdoc = '<!doctype html><html><body style="background:#111;margin:0"></body></html>'; viewer.style.opacity = 1; return; }
-hidden.value = url;
-const prox = '/' + encodeURIComponent(url);
-viewer.style.opacity = 0;
-setTimeout(()=>{ viewer.src = prox; }, 80);
-}
-
-
-viewer.addEventListener('load', ()=>{
-viewer.style.opacity = 1;
-try {
-const doc = viewer.contentDocument || viewer.contentWindow.document;
-const title = doc.title;
-if (title) document.title = title;
-const icon = doc.querySelector('link[rel*="icon"]');
-if (icon && icon.href) document.getElementById('fav').href = icon.href;
-} catch(e) {
-try { document.title = new URL(hidden.value).hostname; } catch{}
-}
+document.getElementById('url').addEventListener('keypress', e => {
+  if(e.key==='Enter') loadUrl();
 });
-
-
-window.addEventListener('keydown', (e)=>{
-if ((e.ctrlKey || e.metaKey) && e.key === 'r') {
-e.preventDefault();
-viewer.contentWindow.location.reload(true);
-}
-});
-
-
-load(getTargetFromPath());
 </script>
 </body>
 </html>
