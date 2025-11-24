@@ -1,13 +1,28 @@
 {
-  "name": "scramjet-proxy",
+  "name": "smart-scramjet-proxy",
   "version": "1.0.0",
+  "description": "Fully working Scramjet proxy for any website",
   "type": "module",
+  "main": "proxy.js",
   "scripts": {
     "start": "node proxy.js"
   },
+  "engines": {
+    "node": ">=22.16.0"
+  },
   "dependencies": {
-    "express": "^5.1.0",
-    "node-fetch": "^3.3.2",
-    "scramjet": "^4.37.0"
-  }
+    "express": "5.1.0",
+    "node-fetch": "3.3.2",
+    "jsdom": "21.1.2",
+    "scramjet": "4.3.0"
+  },
+  "keywords": [
+    "proxy",
+    "scramjet",
+    "express",
+    "stream",
+    "html-rewrite"
+  ],
+  "author": "Your Name",
+  "license": "MIT"
 }
