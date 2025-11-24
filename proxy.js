@@ -1,74 +1,44 @@
 import express from "express";
-import puppeteer from "puppeteer";
-import cookieParser from "cookie-parser";
+import fetch from "node-fetch";
+import { DataStream } from "scramjet";
 
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-// Middleware
-app.use(cookieParser());
-app.use(express.static("."));
+app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
 
-// Puppeteer browser instance (headless)
-let browser;
-(async () => {
-  browser = await puppeteer.launch({
-    headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
-  });
-  console.log("Puppeteer browser launched");
-})();
-
-// --- Assignments Proxy ---
-app.get("/assignments/:encodedURL", async (req, res) => {
+app.get("/assignments/:url", async (req, res) => {
   try {
-    const encodedURL = req.params.encodedURL;
-    if (!encodedURL) return res.status(400).send("Missing URL");
+    const targetUrl = decodeURIComponent(req.params.url);
 
-    const target = decodeURIComponent(encodedURL);
-
-    if (!browser) return res.status(500).send("Browser not ready");
-
-    const page = await browser.newPage();
-
-    // Forward headers & cookies
-    await page.setExtraHTTPHeaders({
-      "User-Agent": req.headers["user-agent"] || "Mozilla/5.0",
-      "Accept-Language": req.headers["accept-language"] || "en-US,en;q=0.9",
+    // Fetch the website
+    const response = await fetch(targetUrl, {
+      headers: {
+        "User-Agent": req.headers["user-agent"] || "Mozilla/5.0",
+        Accept: "*/*",
+      },
+      redirect: "follow",
     });
 
-    // Set cookies from client
-    if (req.headers.cookie) {
-      const cookies = req.headers.cookie.split(";").map(c => {
-        const [name, ...v] = c.trim().split("=");
-        return { name, value: v.join("="), domain: new URL(target).hostname };
-      });
-      await page.setCookie(...cookies);
-    }
+    // Copy status and headers
+    res.status(response.status);
+    response.headers.forEach((value, key) => {
+      if (!["content-encoding", "content-length"].includes(key.toLowerCase())) {
+        res.setHeader(key, value);
+      }
+    });
 
-    // Go to target URL
-    await page.goto(target, { waitUntil: "networkidle2", timeout: 60000 });
+    // Stream the content using Scramjet DataStream
+    const bodyStream = DataStream.fromWeb(response.body);
+    await bodyStream.pipe(res);
 
-    // Get HTML content
-    let html = await page.content();
-
-    // Optional: fix <base> for relative links
-    html = html.replace(
-      /<head>/i,
-      `<head><base href="${target}">`
-    );
-
-    // Close page
-    await page.close();
-
-    res.send(html);
   } catch (err) {
     console.error("Assignments Proxy Error:", err);
-    res.status(500).send("Assignments Proxy Error: " + err.message);
+    res.status(500).send("Proxy Error: " + err.message);
   }
 });
 
-// Start server
 app.listen(PORT, () => {
-  console.log(`Smart Assignments Proxy running → http://localhost:${PORT}`);
+  console.log(`Smart Assignments Scramjet Proxy running → http://localhost:${PORT}`);
 });
