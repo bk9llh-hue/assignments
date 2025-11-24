@@ -1,37 +1,19 @@
 {
-  "name": "classwork-assignments-proxy",
+  "name": "assignments-proxy",
   "version": "1.0.0",
-  "description": "Smart Scramjet-powered assignments proxy for full-page website rendering",
+  "description": "Full website proxy using Puppeteer",
   "main": "proxy.js",
   "type": "module",
   "scripts": {
-    "start": "node proxy.js",
-    "dev": "nodemon proxy.js",
-    "lint": "eslint . --ext .js"
+    "start": "node proxy.js"
   },
   "engines": {
     "node": ">=22.16.0"
   },
   "dependencies": {
     "express": "^5.1.0",
-    "jsdom": "^21.1.2",
-    "node-fetch": "^3.3.2",
-    "scramjet": "^4.37.0",
+    "puppeteer": "^23.4.0",
     "cookie-parser": "^1.4.6"
   },
-  "devDependencies": {
-    "nodemon": "^3.0.2",
-    "eslint": "^8.49.0"
-  },
-  "keywords": [
-    "scramjet",
-    "proxy",
-    "express",
-    "jsdom",
-    "assignments",
-    "iframe",
-    "stream"
-  ],
-  "author": "Your Name",
-  "license": "MIT"
+  "devDependencies": {}
 }
