@@ -14,18 +14,25 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Google Classroom">
 <style>
-body{margin:0;height:100vh;display:flex;align-items:center;justify-content:center;font-family:Inter,system-ui,Arial,sans-serif;background:#fff}
-.wrap{text-align:center;color:#333}
-a{display:inline-block;margin:6px 0;color:#1a73e8;text-decoration:none}
-code{background:#f5f5f5;padding:6px;border-radius:6px}
+  body { font-family: Arial, sans-serif; background:#f0f0f0; text-align:center; padding-top:50px; }
+  input { padding:10px; width:50%; font-size:16px; }
+  button { padding:10px 20px; font-size:16px; }
 </style>
 </head>
 <body>
-<div class="wrap">
-<h1>Classwork</h1>
-<p>To open a site, append the host to the URL.<br>
-Example: <code>/google.com</code> or <code>/youtube.com/watch?v=...</code></p>
-<p><a href="/google.com">Open Google</a> · <a href="/github.com">Open GitHub</a></p>
-</div>
+<h1>Classroom</h1>
+<form id="form">
+  <input type="text" id="urlInput" placeholder="Enter website URL" required>
+  <button type="submit">Go</button>
+</form>
+<script>
+const form = document.getElementById('form');
+form.addEventListener('submit', e => {
+  e.preventDefault();
+  const url = document.getElementById('urlInput').value;
+  if (!url) return;
+  window.location.href = '/' + encodeURIComponent(url);
+});
+</script>
 </body>
 </html>
