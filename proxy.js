@@ -11,46 +11,71 @@ const PORT = process.env.PORT || 10000;
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
-// Rewrite URLs to go through the proxy
-function rewriteUrls(html, baseUrl) {
+// Rewrite HTML links and scripts to proxy
+function rewriteHtml(html, baseUrl) {
   const dom = new JSDOM(html);
-  const document = dom.window.document;
+  const doc = dom.window.document;
 
-  const elements = [
+  const attrsToRewrite = [
     { tag: "a", attr: "href" },
     { tag: "img", attr: "src" },
     { tag: "script", attr: "src" },
     { tag: "link", attr: "href" },
     { tag: "form", attr: "action" },
+    { tag: "iframe", attr: "src" },
   ];
 
-  elements.forEach(({ tag, attr }) => {
-    document.querySelectorAll(tag).forEach(el => {
-      const url = el.getAttribute(attr);
-      if (url && !url.startsWith("data:") && !url.startsWith("#")) {
+  attrsToRewrite.forEach(({ tag, attr }) => {
+    doc.querySelectorAll(tag).forEach(el => {
+      const val = el.getAttribute(attr);
+      if (val && !val.startsWith("#") && !val.startsWith("data:")) {
         try {
-          const absoluteUrl = new URL(url, baseUrl).toString();
-          el.setAttribute(attr, `/assignments/${encodeURIComponent(absoluteUrl)}`);
+          const absoluteUrl = new URL(val, baseUrl).toString();
+          el.setAttribute(attr, `/${encodeURIComponent(absoluteUrl)}`);
         } catch {}
       }
     });
   });
 
+  // Rewrite inline JS URLs (fetch, XMLHttpRequest, location)
+  doc.querySelectorAll("script").forEach(script => {
+    if (!script.src && script.textContent) {
+      script.textContent = script.textContent.replace(
+        /(fetch|XMLHttpRequest|window\.location|document\.location)\(['"]([^'"]+)['"]\)/g,
+        (m, p1, url) => {
+          try {
+            const absoluteUrl = new URL(url, baseUrl).toString();
+            return `${p1}('/${encodeURIComponent(absoluteUrl)}')`;
+          } catch {
+            return m;
+          }
+        }
+      );
+    }
+  });
+
   return dom.serialize();
 }
 
-// Main proxy route
-app.get("/assignments/:url", async (req, res) => {
+// Main proxy: catches ANY path
+app.get("/*", async (req, res) => {
   try {
-    const targetUrl = decodeURIComponent(req.params.url);
+    let targetUrl = decodeURIComponent(req.path.slice(1)); // Remove leading "/"
+
+    if (!targetUrl.startsWith("http://") && !targetUrl.startsWith("https://")) {
+      targetUrl = "https://" + targetUrl; // default to HTTPS
+    }
 
     const response = await fetch(targetUrl, {
-      headers: { "User-Agent": req.headers["user-agent"] || "Mozilla/5.0", Accept: "*/*" },
+      headers: {
+        "User-Agent": req.headers["user-agent"] || "Mozilla/5.0",
+        Accept: "*/*",
+      },
       redirect: "follow",
     });
 
-    // Forward headers (skip some)
     res.status(response.status);
+
     response.headers.forEach((value, key) => {
       if (!["content-encoding", "content-length"].includes(key.toLowerCase())) {
         res.setHeader(key, value);
@@ -60,18 +85,26 @@ app.get("/assignments/:url", async (req, res) => {
     const contentType = response.headers.get("content-type") || "";
 
     if (contentType.includes("text/html")) {
-      const text = await response.text();
-      const rewritten = rewriteUrls(text, targetUrl);
+      const html = await response.text();
+      const rewritten = rewriteHtml(html, targetUrl);
       await DataStream.fromString(rewritten).pipe(res);
     } else {
       await DataStream.fromWeb(response.body).pipe(res);
     }
   } catch (err) {
-    console.error("Assignments Proxy Error:", err);
+    console.error("Proxy Error:", err);
     res.status(500).send("Proxy Error: " + err.message);
   }
 });
 
+// Simple root message
+app.get("/", (req, res) => {
+  res.send(`
+    <h2>Smart Scramjet Proxy is running</h2>
+    <p>Use /google.com or /youtube.com to proxy any website.</p>
+  `);
+});
+
 app.listen(PORT, () => {
-  console.log(`Smart Assignments Scramjet Proxy running → http://localhost:${PORT}`);
+  console.log(`Smart Scramjet Proxy running → http://localhost:${PORT}`);
 });
