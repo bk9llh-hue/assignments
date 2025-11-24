@@ -1,14 +1,19 @@
 {
-  "name": "smart-loader",
+  "name": "scramjet-proxy",
   "version": "1.0.0",
   "type": "module",
+  "main": "proxy.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node proxy.js"
   },
   "dependencies": {
     "express": "^5.1.0",
-    "node-fetch": "^3.3.2",
-    "compression": "^1.7.4",
-    "lru-cache": "^10.0.0"
-  }
+    "jsdom": "^21.1.2",
+    "node-fetch": "^3.3.2"
+  },
+  "devDependencies": {},
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": ""
 }

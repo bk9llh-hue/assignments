@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Local Proxy Test</title>
+<style>
+body { margin:0; background:#111; color:white; font-family:sans-serif; }
+#bar { padding:10px; background:#222; display:flex; gap:10px; }
+input { flex:1; padding:8px; background:#333; border:none; color:white; }
+button { padding:8px 14px; background:#444; border:none; color:white; }
+iframe { width:100vw; height:90vh; border:none; }
+</style>
+</head>
+<body>
+<div id="bar">
+    <input id="url" placeholder="https://classwork-study.onrender.com/">
+    <button onclick="go()">Go</button>
+</div>
+<iframe id="frame"></iframe>
+
+<script>
+function go() {
+    const u = document.getElementById("url").value;
+    document.getElementById("frame").src =
+      "/proxy?url=" + encodeURIComponent(u);
+}
+</script>
+</body>
+</html>
