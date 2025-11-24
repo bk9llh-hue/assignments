@@ -11,7 +11,7 @@ const PORT = process.env.PORT || 10000;
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
-// Rewrite HTML links and scripts to proxy
+// Rewrite HTML links/scripts to proxy URLs
 function rewriteHtml(html, baseUrl) {
   const dom = new JSDOM(html);
   const doc = dom.window.document;
@@ -37,7 +37,7 @@ function rewriteHtml(html, baseUrl) {
     });
   });
 
-  // Rewrite inline JS URLs (fetch, XMLHttpRequest, location)
+  // Rewrite inline JS URLs (fetch, location)
   doc.querySelectorAll("script").forEach(script => {
     if (!script.src && script.textContent) {
       script.textContent = script.textContent.replace(
@@ -57,13 +57,13 @@ function rewriteHtml(html, baseUrl) {
   return dom.serialize();
 }
 
-// Main proxy: catches ANY path
-app.get("/*", async (req, res) => {
+// Catch-all route with named parameter
+app.get("/:url(*)", async (req, res) => {
   try {
-    let targetUrl = decodeURIComponent(req.path.slice(1)); // Remove leading "/"
+    let targetUrl = decodeURIComponent(req.params.url);
 
     if (!targetUrl.startsWith("http://") && !targetUrl.startsWith("https://")) {
-      targetUrl = "https://" + targetUrl; // default to HTTPS
+      targetUrl = "https://" + targetUrl;
     }
 
     const response = await fetch(targetUrl, {
@@ -97,7 +97,7 @@ app.get("/*", async (req, res) => {
   }
 });
 
-// Simple root message
+// Root message
 app.get("/", (req, res) => {
   res.send(`
     <h2>Smart Scramjet Proxy is running</h2>
