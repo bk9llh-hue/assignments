@@ -1,14 +1,9 @@
 {
   "name": "assignments-proxy",
   "version": "1.0.0",
-  "description": "Full website proxy for assignments using Puppeteer",
-  "main": "proxy.js",
   "type": "module",
   "scripts": {
     "start": "node proxy.js"
-  },
-  "engines": {
-    "node": ">=22.16.0"
   },
   "dependencies": {
     "express": "^5.1.0",
