@@ -1,138 +1,52 @@
-import express from "express";
-import fetch, { Headers } from "node-fetch";
-import path from "path";
-import { fileURLToPath } from "url";
-import zlib from "zlib";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-const app = express();
-const PORT = process.env.PORT || 3000;
-
-// Serve static files
-app.use(express.static(__dirname));
-
-// Helper: force proxify URLs
-const proxify = (url) => "/" + encodeURIComponent(url);
-
-// Smart HTML Rewriter
-function rewriteHTML(html, baseUrl) {
-  return html
-    // src="something"
-    .replace(/(src|href|action)=["']([^"']+)["']/gi, (m, attr, url) => {
-      try {
-        const abs = new URL(url, baseUrl).href;
-        return `${attr}="${proxify(abs)}"`;
-      } catch {
-        return m;
-      }
-    })
-    // CSS url(...)
-    .replace(/url\(([^)]+)\)/gi, (m, url) => {
-      const clean = url.replace(/["']/g, "");
-      if (clean.startsWith("data:")) return m;
-
-      try {
-        const abs = new URL(clean, baseUrl).href;
-        return `url("${proxify(abs)}")`;
-      } catch {
-        return m;
-      }
-    });
-}
-
-// Remove headers that break iframe / proxy
-const stripSecurity = (res) => {
-  res.removeHeader("content-security-policy");
-  res.removeHeader("strict-transport-security");
-  res.removeHeader("x-frame-options");
-  res.removeHeader("x-content-type-options");
-  res.removeHeader("x-xss-protection");
-  res.removeHeader("referrer-policy");
+// proxy.js (ESM) - Smart universal proxy
+headers: outHeaders,
+redirect: "follow",
+body: ["GET", "HEAD"].includes(req.method) ? undefined : req.body,
+agent: upstreamUrl.startsWith("https:") ? new https.Agent({ rejectUnauthorized: false }) : new http.Agent()
 };
 
-// MAIN SMART PROXY
-app.get("/:url(*)", async (req, res) => {
-  let raw = req.params.url;
 
-  // Home
-  if (!raw) return res.sendFile(path.join(__dirname, "home.html"));
+const upstreamRes = await fetch(upstreamUrl, fetchOpts);
 
-  // Decode URL
-  let targetUrl = decodeURIComponent(raw);
 
-  if (!targetUrl.match(/^https?:\/\//)) {
-    targetUrl = "https://" + targetUrl;
-  }
+// Sanitize & copy headers
+const sanitized = sanitizeOutHeaders(upstreamRes.headers);
+for (const [k, v] of Object.entries(sanitized)) {
+try { res.setHeader(k, v); } catch {}
+}
 
-  // Reconstruct querystring
-  if (Object.keys(req.query).length) {
-    const qs = new URLSearchParams(req.query).toString();
-    targetUrl += "?" + qs;
-  }
 
-  console.log("FETCH →", targetUrl);
+const ct = (upstreamRes.headers.get("content-type") || "").toLowerCase();
 
-  try {
-    const upstream = await fetch(targetUrl, {
-      redirect: "manual",
-      headers: {
-        "User-Agent": req.headers["user-agent"],
-        Accept: "*/*",
-        "Accept-Encoding": "gzip, deflate, br",
-      },
-    });
 
-    // Handle redirects by proxifying Location header
-    if (upstream.status >= 300 && upstream.status < 400) {
-      const loc = upstream.headers.get("location");
-      if (loc) {
-        const abs = new URL(loc, targetUrl).href;
-        return res.redirect(proxify(abs));
-      }
-    }
+// If HTML/JS/CSS => rewrite minimal URLs
+if (ct.includes("text/html") || ct.includes("application/javascript") || ct.includes("text/javascript") || ct.includes("text/css")) {
+const text = await upstreamRes.text();
+const rewritten = rewriteForProxy(text, upstreamUrl);
+res.setHeader("content-type", upstreamRes.headers.get("content-type") || "text/html; charset=utf-8");
+return res.status(upstreamRes.status).send(rewritten);
+}
 
-    // Copy headers but remove limits
-    upstream.headers.forEach((v, k) => {
-      if (!["content-security-policy", "x-frame-options"].includes(k)) {
-        res.setHeader(k, v);
-      }
-    });
 
-    stripSecurity(res);
-
-    // STREAM, not buffer
-    const encoding = upstream.headers.get("content-encoding");
-    const contentType = upstream.headers.get("content-type") || "";
-
-    let stream = upstream.body;
-
-    if (encoding === "gzip") stream = stream.pipe(zlib.createGunzip());
-    if (encoding === "br") stream = stream.pipe(zlib.createBrotliDecompress());
-    if (encoding === "deflate")
-      stream = stream.pipe(zlib.createInflate());
-
-    // HTML gets rewritten smartly
-    if (contentType.includes("text/html")) {
-      let html = "";
-      stream.on("data", (chunk) => (html += chunk.toString()));
-      stream.on("end", () => {
-        const finalHTML = rewriteHTML(html, targetUrl);
-        res.setHeader("content-type", "text/html");
-        res.send(finalHTML);
-      });
-      return;
-    }
-
-    // Everything else → stream as-is
-    stream.pipe(res);
-  } catch (err) {
-    console.log("Proxy error:", err);
-    res.status(500).send("Proxy Failure: " + err.message);
-  }
+// Otherwise stream binary
+res.status(upstreamRes.status);
+if (upstreamRes.body && typeof upstreamRes.body.pipe === "function") {
+upstreamRes.body.pipe(res);
+} else {
+const buf = Buffer.from(await upstreamRes.arrayBuffer());
+res.send(buf);
+}
+} catch (err) {
+console.error("PROXY HANDLER ERROR:", err);
+if (err && err.code === "ENOTFOUND") return res.status(502).send("Upstream DNS lookup failed: " + (err.hostname || "unknown"));
+return res.status(500).send("Proxy internal error: " + (err.message || String(err)));
+}
 });
 
-app.listen(PORT, () =>
-  console.log(`SMART SCRAMJET PROXY RUNNING → http://localhost:${PORT}`)
-);
+
+proxyWs.on("error", (err) => console.error("HTTP-Proxy error:", err));
+
+
+server.listen(PORT, () => {
+console.log(`Smart universal proxy listening on :${PORT}`);
+});
