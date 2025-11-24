@@ -1,26 +1,34 @@
 import express from "express";
 import fetch from "node-fetch";
-import { DataStream } from "scramjet";
+import Scramjet from "scramjet";  // <-- v4 compatible import
+const { DataStream } = Scramjet;
 import { JSDOM } from "jsdom";
+import cookieParser from "cookie-parser";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// ----------------------
+// Middleware to parse cookies
+app.use(cookieParser());
+
+// -------------------------------
 // Auto URL Mapper
-// /google.com → /assignments/<encoded>
+// /google.com → /assignments/<encoded URL>
 app.get("/:site", (req, res, next) => {
     const host = req.params.site;
+
+    // Only treat things that look like domains
     if (host.includes(".")) {
         const url = `https://${host}`;
         return res.redirect(`/assignments/${encodeURIComponent(url)}`);
     }
+
     next();
 });
 
-// ----------------------
+// -------------------------------
 // Scramjet-powered Assignments Proxy
-// ----------------------
+// -------------------------------
 app.get("/assignments/:encoded", async (req, res) => {
     try {
         const target = decodeURIComponent(req.params.encoded);
@@ -34,6 +42,7 @@ app.get("/assignments/:encoded", async (req, res) => {
             redirect: "manual"
         });
 
+        // Forward cookies
         if (upstream.headers.has("set-cookie")) {
             res.setHeader("set-cookie", upstream.headers.get("set-cookie"));
         }
@@ -46,16 +55,16 @@ app.get("/assignments/:encoded", async (req, res) => {
             return DataStream.from(upstream.body).pipe(res);
         }
 
-        // Parse HTML
-        let html = await upstream.text();
+        // Parse HTML and rewrite
+        const html = await upstream.text();
         const dom = new JSDOM(html);
         const document = dom.window.document;
 
         const rewrite = (url) =>
             `/assignments/${encodeURIComponent(new URL(url, target).href)}`;
 
-        // Rewrite all static attributes
-        document.querySelectorAll("*").forEach(el => {
+        // Rewrite static links, images, scripts, and forms
+        document.querySelectorAll("*").forEach((el) => {
             if (el.hasAttribute("href")) {
                 const val = el.getAttribute("href");
                 if (val && !val.startsWith("http") && !val.startsWith("data:")) {
@@ -76,7 +85,7 @@ app.get("/assignments/:encoded", async (req, res) => {
             }
         });
 
-        // Inject dynamic rewriting for fetch/XHR
+        // Inject dynamic rewriting for fetch and XMLHttpRequest
         const patch = document.createElement("script");
         patch.textContent = `
             (() => {
@@ -98,7 +107,9 @@ app.get("/assignments/:encoded", async (req, res) => {
         `;
         document.head.appendChild(patch);
 
-        DataStream.fromString(dom.serialize()).pipe(res);
+        // Serialize and stream
+        const output = dom.serialize();
+        DataStream.fromString(output).pipe(res);
 
     } catch (err) {
         console.error("Assignments Proxy Error:", err);
@@ -106,11 +117,11 @@ app.get("/assignments/:encoded", async (req, res) => {
     }
 });
 
-// ----------------------
-// Frontend / Static UI
-// ----------------------
+// -------------------------------
+// Serve static frontend
+// -------------------------------
 app.use(express.static("."));
 
 app.listen(PORT, () => {
-    console.log(`Smart Assignments Proxy running at http://localhost:${PORT}`);
+    console.log(`Smart Assignments Proxy running → http://localhost:${PORT}`);
 });
