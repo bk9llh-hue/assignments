@@ -1,65 +1,116 @@
 import express from "express";
 import fetch from "node-fetch";
+import { DataStream } from "scramjet";
 import { JSDOM } from "jsdom";
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
-// --- Smart Assignment Proxy ---
-app.get("/assignment/:encodedURL", async (req, res) => {
-    const encodedURL = req.params.encodedURL;
-    if (!encodedURL) return res.status(400).send("Missing URL");
+// ----------------------
+// Auto URL Mapper
+// /google.com → /assignments/<encoded>
+app.get("/:site", (req, res, next) => {
+    const host = req.params.site;
+    if (host.includes(".")) {
+        const url = `https://${host}`;
+        return res.redirect(`/assignments/${encodeURIComponent(url)}`);
+    }
+    next();
+});
 
+// ----------------------
+// Scramjet-powered Assignments Proxy
+// ----------------------
+app.get("/assignments/:encoded", async (req, res) => {
     try {
-        const target = decodeURIComponent(encodedURL);
+        const target = decodeURIComponent(req.params.encoded);
 
         const upstream = await fetch(target, {
-            headers: { 
-                "User-Agent": req.headers["user-agent"],
-                "Accept-Language": req.headers["accept-language"] || "en-US,en;q=0.9"
-            }
+            headers: {
+                "User-Agent": req.headers["user-agent"] || "Mozilla/5.0",
+                "Accept-Language": req.headers["accept-language"] || "en-US,en;q=0.9",
+                "Cookie": req.headers.cookie || ""
+            },
+            redirect: "manual"
         });
 
-        const contentType = upstream.headers.get("content-type") || "";
-        if (!contentType.includes("text/html")) {
-            // For images, PDFs, etc., just pipe the response
-            const buffer = await upstream.buffer();
-            res.setHeader("Content-Type", contentType);
-            return res.send(buffer);
+        if (upstream.headers.has("set-cookie")) {
+            res.setHeader("set-cookie", upstream.headers.get("set-cookie"));
         }
 
+        const contentType = upstream.headers.get("content-type") || "";
+        res.setHeader("content-type", contentType);
+
+        // Stream non-HTML directly
+        if (!contentType.includes("text/html")) {
+            return DataStream.from(upstream.body).pipe(res);
+        }
+
+        // Parse HTML
         let html = await upstream.text();
         const dom = new JSDOM(html);
         const document = dom.window.document;
 
-        // Insert <base> to fix relative URLs
-        const baseEl = document.createElement("base");
-        baseEl.href = target;
-        document.head.prepend(baseEl);
+        const rewrite = (url) =>
+            `/assignments/${encodeURIComponent(new URL(url, target).href)}`;
 
-        // Rewrite relative URLs to stay in /assignment/ format
-        [...document.querySelectorAll("a, link, script, img, form")].forEach(el => {
-            const attr = el.hasAttribute("href") ? "href" :
-                         el.hasAttribute("src") ? "src" : null;
-            if (!attr) return;
-
-            const val = el.getAttribute(attr);
-            if (!val || val.startsWith("http") || val.startsWith("data:")) return;
-
-            const absolute = new URL(val, target).href;
-            el.setAttribute(attr, `/assignment/${encodeURIComponent(absolute)}`);
+        // Rewrite all static attributes
+        document.querySelectorAll("*").forEach(el => {
+            if (el.hasAttribute("href")) {
+                const val = el.getAttribute("href");
+                if (val && !val.startsWith("http") && !val.startsWith("data:")) {
+                    el.setAttribute("href", rewrite(val));
+                }
+            }
+            if (el.hasAttribute("src")) {
+                const val = el.getAttribute("src");
+                if (val && !val.startsWith("http") && !val.startsWith("data:")) {
+                    el.setAttribute("src", rewrite(val));
+                }
+            }
+            if (el.tagName === "FORM" && el.hasAttribute("action")) {
+                const val = el.getAttribute("action");
+                if (val && !val.startsWith("http")) {
+                    el.setAttribute("action", rewrite(val));
+                }
+            }
         });
 
-        res.send(dom.serialize());
+        // Inject dynamic rewriting for fetch/XHR
+        const patch = document.createElement("script");
+        patch.textContent = `
+            (() => {
+                const _fetch = window.fetch;
+                window.fetch = (url, opts) => {
+                    try {
+                        if (url.startsWith("/")) url = location.origin + url;
+                        if (!url.startsWith("http")) url = new URL(url, location.href).href;
+                        return _fetch("/assignments/" + encodeURIComponent(url), opts);
+                    } catch (e) { return _fetch(url, opts); }
+                };
+
+                const X = XMLHttpRequest.prototype.open;
+                XMLHttpRequest.prototype.open = function(method, url) {
+                    if (!url.startsWith("http")) url = new URL(url, location.href).href;
+                    return X.call(this, method, "/assignments/" + encodeURIComponent(url));
+                };
+            })();
+        `;
+        document.head.appendChild(patch);
+
+        DataStream.fromString(dom.serialize()).pipe(res);
 
     } catch (err) {
-        res.status(500).send("Upstream error: " + err.message);
+        console.error("Assignments Proxy Error:", err);
+        res.status(500).send("Assignments Proxy Error: " + err.message);
     }
 });
 
-// Serve static files for the browser UI
+// ----------------------
+// Frontend / Static UI
+// ----------------------
 app.use(express.static("."));
 
 app.listen(PORT, () => {
-    console.log(`Smart Assignment Proxy running at http://localhost:${PORT}`);
+    console.log(`Smart Assignments Proxy running at http://localhost:${PORT}`);
 });
