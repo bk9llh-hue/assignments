@@ -9,7 +9,8 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 app.use(cookieParser());
 
-// Auto-map short domains
+// -------------------------------
+// Auto-map short domains: /google.com → /assignments/<encoded>
 app.get("/:site", (req, res, next) => {
     const host = req.params.site;
     if (host.includes(".")) {
@@ -18,20 +19,23 @@ app.get("/:site", (req, res, next) => {
     next();
 });
 
-// Assignments proxy
+// -------------------------------
+// /assignments/:encoded proxy
 app.get("/assignments/:encoded", async (req, res) => {
     try {
         const target = decodeURIComponent(req.params.encoded);
 
+        // Fetch upstream, FOLLOW redirects
         const upstream = await fetch(target, {
             headers: {
-                "User-Agent": req.headers["user-agent"] || "Mozilla/5.0",
+                "User-Agent": req.headers["user-agent"] || 
+                  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36",
                 "Accept-Language": req.headers["accept-language"] || "en-US,en;q=0.9",
                 "Cookie": req.headers.cookie || ""
-            },
-            redirect: "manual"
+            }
         });
 
+        // Forward cookies
         if (upstream.headers.has("set-cookie")) {
             res.setHeader("set-cookie", upstream.headers.get("set-cookie"));
         }
@@ -39,16 +43,19 @@ app.get("/assignments/:encoded", async (req, res) => {
         const contentType = upstream.headers.get("content-type") || "";
         res.setHeader("content-type", contentType);
 
+        // Stream non-HTML directly
         if (!contentType.includes("text/html")) {
             return DataStream.from(upstream.body).pipe(res);
         }
 
+        // Parse and rewrite HTML
         const html = await upstream.text();
         const dom = new JSDOM(html);
         const document = dom.window.document;
 
         const rewrite = (url) => `/assignments/${encodeURIComponent(new URL(url, target).href)}`;
 
+        // Rewrite links, images, scripts, forms
         document.querySelectorAll("*").forEach(el => {
             if (el.hasAttribute("href")) {
                 const val = el.getAttribute("href");
@@ -64,7 +71,7 @@ app.get("/assignments/:encoded", async (req, res) => {
             }
         });
 
-        // Dynamic JS rewriting
+        // Inject dynamic JS rewriting (fetch/XHR)
         const patch = document.createElement("script");
         patch.textContent = `
             (() => {
@@ -86,7 +93,7 @@ app.get("/assignments/:encoded", async (req, res) => {
         `;
         document.head.appendChild(patch);
 
-        // ✅ Use StringStream for HTML
+        // Stream HTML using StringStream
         StringStream.from(dom.serialize()).pipe(res);
 
     } catch (err) {
@@ -98,6 +105,7 @@ app.get("/assignments/:encoded", async (req, res) => {
 // Serve frontend
 app.use(express.static("."));
 
+// Start server
 app.listen(PORT, () => {
     console.log(`Smart Assignments Proxy running → http://localhost:${PORT}`);
 });
