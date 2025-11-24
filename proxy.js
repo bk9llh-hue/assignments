@@ -1,103 +1,74 @@
 import express from "express";
 import puppeteer from "puppeteer";
+import cookieParser from "cookie-parser";
 
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-let browser;
+// Middleware
+app.use(cookieParser());
+app.use(express.static("."));
 
-// Launch Puppeteer once on startup
+// Puppeteer browser instance (headless)
+let browser;
 (async () => {
   browser = await puppeteer.launch({
     headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox"]
+    args: ["--no-sandbox", "--disable-setuid-sandbox"],
   });
-  console.log("Smart Assignments Proxy running → http://localhost:" + PORT);
+  console.log("Puppeteer browser launched");
 })();
 
-// Helper: rewrite relative links in HTML
-function rewriteLinks(html) {
-  return html.replace(
-    /(<head.*?>)/i,
-    `$1
-    <script>
-      (function(){
-        function rewrite(el){
-          ['href','src','action'].forEach(attr=>{
-            if(el[attr] && !el[attr].startsWith('http') && !el[attr].startsWith('data:')){
-              el[attr] = '/assignments/' + encodeURIComponent(new URL(el[attr], location.href).href);
-            }
-          });
-        }
-        document.querySelectorAll('a,link,script,img,form').forEach(rewrite);
-
-        const _fetch = window.fetch;
-        window.fetch = function(url, opts){
-          if(!url.startsWith('http')) url = new URL(url, location.href).href;
-          return _fetch('/assignments/'+encodeURIComponent(url), opts);
-        };
-
-        const X = XMLHttpRequest.prototype.open;
-        XMLHttpRequest.prototype.open = function(method,url){
-          if(!url.startsWith('http')) url = new URL(url, location.href).href;
-          return X.call(this, method, '/assignments/'+encodeURIComponent(url));
-        };
-      })();
-    </script>`
-  );
-}
-
-// Main proxy route
-app.all("/assignments/:encodedURL", async (req, res) => {
-  const target = decodeURIComponent(req.params.encodedURL);
-
-  if (!browser) return res.status(503).send("Browser not ready");
-
+// --- Assignments Proxy ---
+app.get("/assignments/:encodedURL", async (req, res) => {
   try {
+    const encodedURL = req.params.encodedURL;
+    if (!encodedURL) return res.status(400).send("Missing URL");
+
+    const target = decodeURIComponent(encodedURL);
+
+    if (!browser) return res.status(500).send("Browser not ready");
+
     const page = await browser.newPage();
 
-    await page.setUserAgent(
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36"
-    );
-    await page.setViewport({ width: 1366, height: 768 });
+    // Forward headers & cookies
     await page.setExtraHTTPHeaders({
-      "Accept-Language": req.headers["accept-language"] || "en-US,en;q=0.9"
+      "User-Agent": req.headers["user-agent"] || "Mozilla/5.0",
+      "Accept-Language": req.headers["accept-language"] || "en-US,en;q=0.9",
     });
 
-    const response = await page.goto(target, {
-      waitUntil: "networkidle2",
-      timeout: 30000
-    });
-
-    if (!response || !response.ok()) {
-      await page.close();
-      return res.status(response ? response.status() : 500).send("Failed to load page");
+    // Set cookies from client
+    if (req.headers.cookie) {
+      const cookies = req.headers.cookie.split(";").map(c => {
+        const [name, ...v] = c.trim().split("=");
+        return { name, value: v.join("="), domain: new URL(target).hostname };
+      });
+      await page.setCookie(...cookies);
     }
 
+    // Go to target URL
+    await page.goto(target, { waitUntil: "networkidle2", timeout: 60000 });
+
+    // Get HTML content
     let html = await page.content();
-    html = rewriteLinks(html);
 
-    res.setHeader("content-type", "text/html; charset=utf-8");
-    res.send(html);
+    // Optional: fix <base> for relative links
+    html = html.replace(
+      /<head>/i,
+      `<head><base href="${target}">`
+    );
 
+    // Close page
     await page.close();
+
+    res.send(html);
   } catch (err) {
     console.error("Assignments Proxy Error:", err);
     res.status(500).send("Assignments Proxy Error: " + err.message);
   }
 });
 
-// Optional short-domain redirect: /google.com → /assignments/https://google.com
-app.get("/:site", (req, res, next) => {
-  const host = req.params.site;
-  if (host.includes(".")) {
-    return res.redirect(`/assignments/${encodeURIComponent("https://" + host)}`);
-  }
-  next();
-});
-
-// Serve static files (optional frontend UI)
-app.use(express.static("."));
-
 // Start server
-app.listen(PORT);
+app.listen(PORT, () => {
+  console.log(`Smart Assignments Proxy running → http://localhost:${PORT}`);
+});
